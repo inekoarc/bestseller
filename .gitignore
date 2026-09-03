@@ -2,6 +2,10 @@ node_modules/
 data/
 out/
 dist/
+# 打包用的 Chromium（约 400MB），由 scripts/copy-chromium.js 生成本地副本
+resources/
+# AI 内部工作记忆/计划，不提交到仓库
+.workbuddy/
 .DS_Store
 *.log
 npm-debug.log*

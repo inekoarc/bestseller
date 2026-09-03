@@ -13,7 +13,10 @@
     "probe:douyin": "node scripts/probe.js --platform=douyin",
     "smoke": "node scripts/smoke.test.js",
     "collect": "node scripts/collect-cli.js",
-    "dist": "electron-builder --win --x64"
+    "verify": "node scripts/verify-xlsx.js",
+    "probe:jd": "node scripts/probe.js --platform=jd",
+    "prechromium": "node scripts/copy-chromium.js",
+    "dist": "npm run prechromium && electron-builder --win --x64"
   },
   "dependencies": {
     "exceljs": "^4.4.0",

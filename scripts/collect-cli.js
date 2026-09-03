@@ -44,7 +44,7 @@ function emit(channel, payload) {
   if (channel === 'log') {
     console.log(tag, (payload.level || '').padEnd(5), payload.msg);
   } else if (channel === 'progress') {
-    const pct = payload.target ? Math.round((payload.fetched / payload.target) * 100) : 0;
+    const pct = payload.target ? Math.min(100, Math.round((payload.fetched / payload.target) * 100)) : 0;
     process.stdout.write('\r' + tag + ' ' + (payload.fetched || 0) + '/' + (payload.target || 0) + ' (' + pct + '%) ' + (payload.note || '') + '         ');
   } else if (channel === 'qr') {
     console.log(tag, '二维码已存盘：' + payload.file);

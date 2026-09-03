@@ -1,0 +1,50 @@
+appId: com.bestseller.collector
+productName: 爆款采集器
+copyright: Copyright © 2026
+directories:
+  output: out
+  buildResources: build
+
+# 只打 64 位 Windows 安装包
+win:
+  target:
+    - nsis
+  artifactName: ${productName}-${version}-${arch}-setup.${ext}
+nsis:
+  oneClick: false
+  perMachine: false
+  allowToChangeInstallationDirectory: true
+  createDesktopShortcut: true
+  createStartMenuShortcut: true
+  shortcutName: ${productName}
+  language: '2052'
+  installerLanguages:
+    - zh-CN
+
+# 打包内容
+files:
+  - src/**/*
+  - package.json
+  - '!data/**/*'
+  - '!out/**/*'
+  - '!resources/**/*'
+  - '!scripts/**/*'
+  - '!.workbuddy/**/*'
+  - '!**/*.md'
+
+# playwright-core 需要在运行时读取自身资源（浏览器协议 json、字体等），必须解包
+asar: true
+asarUnpack:
+  - node_modules/playwright-core/**/*
+  - node_modules/playwright/**/*
+
+# 随包分发 Chromium（由 scripts/copy-chromium.js 预先复制到 resources/ms-playwright）
+extraResources:
+  - from: resources/ms-playwright
+    to: ms-playwright
+    filter:
+      - '**/*'
+
+compression: maximum
+removePackageScripts: true
+npmRebuild: false

@@ -117,6 +117,7 @@ function createCollector(adapter, cfg, emit) {
     try {
       await state.ctx.close();
     } catch (_) {}
+    state.ctx = null;
   }
 
   async function doLogin(page) {
@@ -241,7 +242,15 @@ function createCollector(adapter, cfg, emit) {
       else stalePages = 0;
       lastTopIds = topIds;
 
-      const newItems = items.filter((it) => it && it.id && !seen.has(it.id));
+      let newItems = items.filter((it) => it && it.id && !seen.has(it.id));
+
+      // 只保留还需要的条数，避免整页全采导致超出 topN（进度 >100%）
+      const remain = topN - added;
+      if (remain <= 0) {
+        emit('log', { level: 'info', msg: '已采满 ' + topN + ' 条，停止翻页' });
+        break;
+      }
+      if (newItems.length > remain) newItems = newItems.slice(0, remain);
 
       if (newItems.length) {
         // 详情页补采销量（如开关开启）
@@ -275,6 +284,9 @@ function createCollector(adapter, cfg, emit) {
             imgErr = '无图片地址';
           }
           const salesNum = parseSales(it.salesText);
+          const remarks = [];
+          if (!sortApplied) remarks.push('⚠未销量排序');
+          if (it.isAd) remarks.push('广告位');
           return {
             platform: adapter.name,
             keyword: kw,
@@ -288,7 +300,7 @@ function createCollector(adapter, cfg, emit) {
             imageUrl: it.imageUrl || '',
             imageFile: imgFile,
             imageError: imgErr,
-            remark: !sortApplied ? '⚠未销量排序' : '',
+            remark: remarks.join(' / '),
             time: nowStamp(),
           };
         });
