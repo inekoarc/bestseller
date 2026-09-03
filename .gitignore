@@ -1,0 +1,11 @@
+node_modules/
+data/
+out/
+dist/
+.DS_Store
+*.log
+npm-debug.log*
+.env
+.vscode/
+.idea/
+data/probe/*-qrcode.png

@@ -1,0 +1,28 @@
+{
+  "name": "bestseller",
+  "version": "0.1.0",
+  "description": "电商爆款商品采集桌面软件（淘宝 / 京东 / 抖音商城）",
+  "main": "src/main/main.js",
+  "author": "",
+  "license": "MIT",
+  "private": true,
+  "scripts": {
+    "dev": "electron .",
+    "start": "electron .",
+    "probe": "node scripts/probe.js",
+    "probe:douyin": "node scripts/probe.js --platform=douyin",
+    "smoke": "node scripts/smoke.test.js",
+    "collect": "node scripts/collect-cli.js",
+    "dist": "electron-builder --win --x64"
+  },
+  "dependencies": {
+    "exceljs": "^4.4.0",
+    "image-size": "^2.0.2",
+    "playwright": "1.62.1"
+  },
+  "devDependencies": {
+    "electron": "^44.1.1",
+    "electron-builder": "^26.15.3",
+    "jsdom": "^26.0.0"
+  }
+}
