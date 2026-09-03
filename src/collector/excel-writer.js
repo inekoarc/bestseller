@@ -14,7 +14,7 @@ const COLUMNS = [
   { key: 'sales', header: '销量', width: 12 },
   { key: 'salesText', header: '销量原文', width: 16 },
   { key: 'link', header: '商品链接', width: 46 },
-  { key: 'image', header: '商品首图', width: 24 },
+  { key: 'image', header: '商品首图', width: 22 },
   { key: 'remark', header: '备注', width: 20 },
   { key: 'time', header: '采集时间', width: 20 },
 ];
@@ -141,17 +141,22 @@ function embedImage(wb, ws, file, r0, xlRow) {
   // 只稳支持 Excel 能渲染的格式
   if (!['jpg', 'jpeg', 'png', 'gif'].includes(String(dim.type || '').toLowerCase())) return false;
 
+  // 依据图片原始比例计算显示高，使单元格比例≈图片比例，避免被拉变形。
+  // 单元格宽固定为 IMG_DISPLAY_W 对应列宽，行高=dispH*0.75（px→pt），
+  // 于是单元格像素比 (IMG_DISPLAY_W : dispH) 与图片原始比一致 → 不拉伸。
   let dispH = (dim.height * IMG_DISPLAY_W) / dim.width;
   if (dispH > IMG_MAX_H) dispH = IMG_MAX_H;
   if (dispH < 40) dispH = 40;
+  xlRow.height = dispH * 0.75; // px → pt
 
+  // 关键修复：用 tl + br 双单元格锚点把图片钉在所属单元格矩形内。
+  // 这样图片是「随单元格移动/缩放」的嵌入式对象，而不是浮在表格上方的独立绘图层。
   const imageId = wb.addImage({ buffer: buf, extension: normalizeExt(dim.type) });
   ws.addImage(imageId, {
-    tl: { col: IMG_COL, row: r0 },
-    ext: { width: IMG_DISPLAY_W, height: dispH },
-    editAs: 'oneCell',
+    tl: { col: IMG_COL, row: r0 }, // 锚定单元格左上角
+    br: { col: IMG_COL + 1, row: r0 + 1 }, // 锚定同一单元格右下角 → 图片填满该单元格
+    editAs: 'twoCell',
   });
-  xlRow.height = dispH * 0.75; // px → pt
   return true;
 }
 

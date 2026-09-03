@@ -43,9 +43,16 @@ function resolveChromiumExecutable() {
  */
 const HIDE_AUTOMATION = process.env.BESTSELLER_HIDE_AUTOMATION !== 'false';
 
+/**
+ * 默认无头（后台）运行：采集过程中不弹出可见浏览器窗口。
+ * 登录二维码通过 grabQR 截图回传到 Electron UI 显示，无需看到浏览器窗口。
+ * 调试时如需查看浏览器，设 BESTSELLER_HEADLESS=false 即可回到有头模式。
+ */
+const HEADLESS = process.env.BESTSELLER_HEADLESS !== 'false';
+
 function launchOptions() {
   const opts = {
-    headless: false,
+    headless: HEADLESS,
     viewport: { width: 1440, height: 900 },
     args: ['--no-first-run', '--no-default-browser-check', '--disable-infobars'],
   };
