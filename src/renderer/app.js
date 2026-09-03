@@ -1,6 +1,6 @@
 'use strict';
 
-const api = window.api;
+const bapi = window.api;
 
 const state = {
   platforms: [],
@@ -165,7 +165,7 @@ async function startCollect() {
   };
 
   try {
-    await api.start(cfg);
+    await bapi.start(cfg);
   } catch (e) {
     setStatus('启动失败', 'err');
     logLine('error', '启动失败：' + (e.message || e));
@@ -173,7 +173,7 @@ async function startCollect() {
 }
 
 // ── IPC handlers ──────────────────────────────────────
-api.onState((p) => {
+bapi.onState((p) => {
   if (!p) return;
   if (p.phase === 'login-check') {
     showPanel('login'); setStep(2); setStatus('登录检测中', 'busy');
@@ -199,7 +199,7 @@ api.onState((p) => {
   }
 });
 
-api.onQr((q) => {
+bapi.onQr((q) => {
   if (!q) return;
   els.qrImg.src = q.dataUrl;
   els.qrPlaceholder.style.display = 'none';
@@ -211,12 +211,12 @@ api.onQr((q) => {
   }
 });
 
-api.onLog((l) => {
+bapi.onLog((l) => {
   if (!l) return;
   logLine(l.level || 'info', l.msg || '');
 });
 
-api.onProgress((p) => {
+bapi.onProgress((p) => {
   if (!p) return;
   state.totalDone = p.fetched || 0;
   state.totalTarget = p.target || 0;
@@ -225,7 +225,7 @@ api.onProgress((p) => {
   els.progressText.textContent = state.totalDone + ' / ' + state.totalTarget + '  ·  ' + pct + '%';
 });
 
-api.onDone((p) => {
+bapi.onDone((p) => {
   state.lastOutput = p.output;
   state.totalDone = p.total;
   setStatus('完成', 'done');
@@ -233,7 +233,7 @@ api.onDone((p) => {
   els.donePath.textContent = p.output;
 });
 
-api.onError((p) => {
+bapi.onError((p) => {
   setStatus('错误', 'err');
   logLine('error', p && p.message ? p.message : '未知错误');
 });
@@ -242,12 +242,12 @@ api.onError((p) => {
 els.btnStart.addEventListener('click', startCollect);
 
 els.btnPickDir.addEventListener('click', async () => {
-  const dir = await api.pickOutputDir();
+  const dir = await bapi.pickOutputDir();
   if (dir) els.outputDir.value = dir;
 });
 
 els.btnBackPick.addEventListener('click', async () => {
-  if (state.phase === 'collecting') await api.stop();
+  if (state.phase === 'collecting') await bapi.stop();
   state.platform = null;
   showPanel('pick'); setStep(1); setStatus('未启动', '');
 });
@@ -258,28 +258,28 @@ els.btnRecheck.addEventListener('click', async () => {
 });
 
 els.btnCancelLogin.addEventListener('click', async () => {
-  await api.stop();
+  await bapi.stop();
   state.platform = null;
   showPanel('pick'); setStep(1); setStatus('已取消', '');
 });
 
 els.btnPause.addEventListener('click', async () => {
   if (!state.paused) {
-    await api.pause(); state.paused = true;
+    await bapi.pause(); state.paused = true;
     els.btnPause.textContent = '继续';
   } else {
-    await api.resume(); state.paused = false;
+    await bapi.resume(); state.paused = false;
     els.btnPause.textContent = '暂停';
   }
 });
 
 els.btnStop.addEventListener('click', async () => {
-  await api.stop();
+  await bapi.stop();
   logLine('warn', '已请求停止...');
 });
 
-els.btnOpenFile.addEventListener('click', () => state.lastOutput && api.openFile(state.lastOutput));
-els.btnOpenFolder.addEventListener('click', () => state.lastOutput && api.showInFolder(state.lastOutput));
+els.btnOpenFile.addEventListener('click', () => state.lastOutput && bapi.openFile(state.lastOutput));
+els.btnOpenFolder.addEventListener('click', () => state.lastOutput && bapi.showInFolder(state.lastOutput));
 
 els.btnNewTask.addEventListener('click', () => {
   state.platform = null;
@@ -292,7 +292,7 @@ els.btnNewTask.addEventListener('click', () => {
 // ── init ─────────────────────────────────────────────
 (async () => {
   try {
-    const list = await api.platforms();
+    const list = await bapi.platforms();
     renderPlatforms(list);
     logLine('info', '就绪。当前仅采集公开展示的商品信息，遵守平台服务协议。');
   } catch (e) {
