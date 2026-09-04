@@ -4,29 +4,43 @@ const path = require('path');
 const fs = require('fs');
 
 /**
- * 统一解析 Chromium 可执行文件。
- * - 打包态：main.js 在 require('playwright') 之前把 PLAYWRIGHT_BROWSERS_PATH
- *   指向 resources/ms-playwright，这里据此拼出 chrome.exe。
- * - 开发态：不设该环境变量，返回 null，交给 Playwright 默认解析（系统 ms-playwright）。
+ * 统一解析 Chromium 可执行文件（完整版 chrome.exe，非 headless-shell）。
+ * 依次尝试：
+ * - 打包态：main.js 设置的 PLAYWRIGHT_BROWSERS_PATH → resources/ms-playwright
+ * - 开发态：%LOCALAPPDATA%/ms-playwright（Playwright 默认下载位置）
+ *
+ * 必须用完整版：Playwright 在 headless 模式下默认选择 chrome-headless-shell
+ * （旧无头壳），其 UA 带 HeadlessChrome 且内核行为不同，实测淘宝风控下
+ * 完全不渲染商品卡片。完整版 + --headless=new 的 UA 与有头一致。
  */
 function resolveChromiumExecutable() {
-  const base = process.env.PLAYWRIGHT_BROWSERS_PATH;
-  if (!base) return null;
-  let dirs = [];
-  try {
-    dirs = fs.readdirSync(base);
-  } catch (_) {
-    return null;
+  const bases = [];
+  if (process.env.PLAYWRIGHT_BROWSERS_PATH) bases.push(process.env.PLAYWRIGHT_BROWSERS_PATH);
+  bases.push(
+    process.env.LOCALAPPDATA
+      ? path.join(process.env.LOCALAPPDATA, 'ms-playwright')
+      : path.join(process.env.USERPROFILE || process.env.HOME || '', 'AppData', 'Local', 'ms-playwright'),
+  );
+  for (const base of bases) {
+    let dirs = [];
+    try {
+      dirs = fs.readdirSync(base);
+    } catch (_) {
+      continue;
+    }
+    // 取修订号最大的 chromium 目录（排除 headless-shell）
+    const cr = dirs
+      .filter((d) => /^chromium-\d+$/.test(d))
+      .sort((a, b) => Number(b.split('-')[1]) - Number(a.split('-')[1]))[0];
+    if (!cr) continue;
+    const candidates = [
+      path.join(base, cr, 'chrome-win64', 'chrome.exe'),
+      path.join(base, cr, 'chrome-win', 'chrome.exe'),
+      path.join(base, cr, 'chrome-linux', 'chrome'),
+      path.join(base, cr, 'chrome-mac', 'Chrome.app', 'Contents', 'MacOS', 'Chrome'),
+    ];
+    for (const e of candidates) if (fs.existsSync(e)) return e;
   }
-  const cr = dirs.filter((d) => /^chromium-\d+$/.test(d)).sort().pop();
-  if (!cr) return null;
-  const candidates = [
-    path.join(base, cr, 'chrome-win64', 'chrome.exe'),
-    path.join(base, cr, 'chrome-win', 'chrome.exe'),
-    path.join(base, cr, 'chrome-linux', 'chrome'),
-    path.join(base, cr, 'chrome-mac', 'Chrome.app', 'Contents', 'MacOS', 'Chrome'),
-  ];
-  for (const e of candidates) if (fs.existsSync(e)) return e;
   return null;
 }
 
@@ -56,6 +70,11 @@ function launchOptions() {
     viewport: { width: 1440, height: 900 },
     args: ['--no-first-run', '--no-default-browser-check', '--disable-infobars'],
   };
+  if (HEADLESS) {
+    // 强制新版无头模式：UA 与有头完全一致（不带 HeadlessChrome 标识）。
+    // 用户参数排在 Playwright 默认参数之后，后者即使给了旧无头开关也会被覆盖。
+    opts.args.push('--headless=new');
+  }
   if (HIDE_AUTOMATION) {
     opts.args.push('--disable-blink-features=AutomationControlled');
     opts.ignoreDefaultArgs = ['--enable-automation'];
@@ -65,4 +84,25 @@ function launchOptions() {
   return opts;
 }
 
-module.exports = { resolveChromiumExecutable, launchOptions };
+/**
+ * 无头模式的 UA 洗白：通过 CDP 把 UA 里的 HeadlessChrome 换成 Chrome
+ * （版本号保持真实，不做伪造）。实测淘宝搜索页在 UA 带 HeadlessChrome
+ * 时不下发商品数据接口（页面停在「加载中...」），洗白后正常渲染。
+ * 需在 page.goto 之前、页面创建之后调用一次。
+ */
+async function scrubHeadlessUa(page) {
+  if (!HEADLESS) return;
+  try {
+    const cdp = page.context().newCDPSession ? await page.context().newCDPSession(page) : null;
+    if (!cdp) return;
+    const realUa = await page.evaluate('navigator.userAgent');
+    if (!/HeadlessChrome/.test(realUa)) return;
+    await cdp.send('Emulation.setUserAgentOverride', {
+      userAgent: realUa.replace('HeadlessChrome', 'Chrome'),
+    });
+  } catch (_) {
+    /* 覆写失败不影响主流程 */
+  }
+}
+
+module.exports = { resolveChromiumExecutable, launchOptions, scrubHeadlessUa };

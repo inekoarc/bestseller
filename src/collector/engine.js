@@ -14,7 +14,8 @@ function chromiumLazy() {
   return _chromium;
 }
 
-const { launchOptions } = require('./browser');
+const browserMod = require('./browser');
+const { launchOptions } = browserMod;
 const { grabQR } = require('./qr');
 const { download } = require('./image-cache');
 const { ExcelWriter } = require('./excel-writer');
@@ -82,6 +83,7 @@ function createCollector(adapter, cfg, emit) {
 
     state.ctx = await chromiumLazy().launchPersistentContext(userDataDir, launchOptions());
     const page = state.ctx.pages()[0] || (await state.ctx.newPage());
+    await browserMod.scrubHeadlessUa(page);
 
     emit('state', { phase: 'login-check' });
     await page.goto(adapter.homeUrl, { waitUntil: 'domcontentloaded', timeout: 60000 }).catch(() => {});
