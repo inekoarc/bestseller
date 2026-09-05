@@ -16,4 +16,4 @@ npm-debug.log*
 .env
 .vscode/
 .idea/
-data/probe/*-qrcode.png
+data/probe/*-qrcode.pngout6/

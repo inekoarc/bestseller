@@ -25,6 +25,7 @@ const els = {
   loginAppName: document.getElementById('login-app-name'),
   loginStatusLine: document.getElementById('login-status-line'),
   qrInfo: document.getElementById('qr-info'),
+  loginLog: document.getElementById('login-log'),
   btnRecheck: document.getElementById('btn-recheck'),
   btnCancelLogin: document.getElementById('btn-cancel-login'),
   btnSwitchSms: document.getElementById('btn-switch-sms'),
@@ -183,6 +184,7 @@ async function startCollect() {
 // ── IPC handlers ──────────────────────────────────────
 bapi.onState((p) => {
   if (!p) return;
+  state.phase = p.phase;
   if (p.phase === 'login-check') {
     showPanel('login'); setStep(2); setStatus('登录检测中', 'busy');
     els.loginStatusLine.textContent = '正在打开登录页...';
@@ -193,6 +195,10 @@ bapi.onState((p) => {
     if (els.qrWrap) els.qrWrap.classList.toggle('hidden', sms);
     if (els.smsForm) els.smsForm.classList.toggle('hidden', !sms);
     if (els.btnSwitchSms) els.btnSwitchSms.classList.toggle('hidden', sms || !p.smsFallback);
+    // 短信模式下隐藏扫码专属按钮（刷新/取消在短信表单里已有）
+    if (els.btnRecheck) els.btnRecheck.classList.toggle('hidden', sms);
+    if (els.btnCancelLogin) els.btnCancelLogin.classList.toggle('hidden', sms);
+    if (els.loginLog) els.loginLog.innerHTML = '';
     setStatus(sms ? '短信登录' : '等待扫码', 'busy');
     els.loginStatusLine.textContent = sms ? '请输入手机号获取验证码' : '等待扫码...';
     els.loginStatusLine.className = 'status-line wait';
@@ -227,6 +233,14 @@ bapi.onQr((q) => {
 bapi.onLog((l) => {
   if (!l) return;
   logLine(l.level || 'info', l.msg || '');
+  // 登录阶段：把引擎日志镜像到登录面板，让短信登录的每步结果（含页面提示）可见
+  if (state.phase === 'login' && els.loginLog) {
+    const d = document.createElement('div');
+    d.className = 'login-log-line ' + (l.level || 'info');
+    d.textContent = l.msg || '';
+    els.loginLog.appendChild(d);
+    while (els.loginLog.children.length > 6) els.loginLog.removeChild(els.loginLog.firstChild);
+  }
 });
 
 bapi.onProgress((p) => {

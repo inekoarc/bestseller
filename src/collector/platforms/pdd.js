@@ -76,10 +76,28 @@ const SET_VAL_SRC = `
   }
 `;
 
+/** 抓页面可见提示（toast/notice），拼进返回状态，让日志呈现真实失败原因（滑块/协议/频率限制等） */
+const TOAST_SRC = `
+  function grabToast() {
+    var cands = document.querySelectorAll('div, p, span');
+    for (var i = 0; i < cands.length; i++) {
+      var e = cands[i];
+      if (e.children.length) continue;
+      var cls = String(e.className || '');
+      var pCls = e.parentElement ? String(e.parentElement.className || '') : '';
+      if (!/toast|tip|notice|message|dialog|popup|hint/i.test(cls + ' ' + pCls)) continue;
+      var t = (e.textContent || '').replace(/[\\u200b\\u200c\\u200d\\ufeff]/g, '').replace(/\\s+/g, ' ').trim();
+      if (t && t.length <= 60) return t;
+    }
+    return '';
+  }
+`;
+
 /** 短信登录第一步：勾协议 → 填手机号 → 点「发送验证码」。返回状态码供日志输出 */
 const SMS_FILL_PHONE_SRC = `
-  (function (phone) {
+  (async function (phone) {
     ${SET_VAL_SRC}
+    ${TOAST_SRC}
     // 勾选用户协议（原生 checkbox）
     var cbs = document.querySelectorAll('input[type="checkbox"]');
     for (var i = 0; i < cbs.length; i++) {
@@ -120,19 +138,18 @@ const SMS_FILL_PHONE_SRC = `
       if (!/^(发送验证码|获取验证码|获取短信验证码)$/.test(s)) continue;
       if (!vis(e) || e.children.length > 2) continue;
       e.click();
-      return 'ok';
+      await new Promise(function (res) { setTimeout(res, 1600); });
+      var toast = grabToast();
+      return 'ok' + (toast ? '｜页面提示: ' + toast : '');
     }
     return 'no-send-btn';
   })`;
 
 /** 短信登录第二步：填验证码 → 点「登录」。返回状态码供日志输出 */
 const SMS_SUBMIT_SRC = `
-  (function (code) {
+  (async function (code) {
     ${SET_VAL_SRC}
-    function vis(el) {
-      var r = el.getBoundingClientRect();
-      return r.width > 0 && r.height > 0;
-    }
+    ${TOAST_SRC}
     var inps = [];
     var all = document.querySelectorAll('input');
     for (var j = 0; j < all.length; j++) if (vis(all[j])) inps.push(all[j]);
@@ -145,15 +162,22 @@ const SMS_SUBMIT_SRC = `
     if (!codeInp && inps.length >= 2) codeInp = inps[1];
     if (!codeInp) codeInp = inps[0];
     setVal(codeInp, String(code));
+    // 勾用户协议（提交前再勾一次：验证码视图可能重置勾选态，未勾选时点「登录」会被页面静默拒绝）
+    var cbs = document.querySelectorAll('input[type="checkbox"]');
+    for (var b = 0; b < cbs.length; b++) {
+      if (vis(cbs[b]) && !cbs[b].checked) { cbs[b].click(); break; }
+    }
     // 点「登录」（精确文案，避开「发送验证码」「登录即同意」等）
     var els = document.querySelectorAll('button, div, span, a');
     for (var m = 0; m < els.length; m++) {
       var e = els[m];
-      var s = (e.textContent || '').trim();
+      var s = (e.textContent || '').replace(/[\\u200b\\u200c\\u200d\\ufeff]/g, '').trim();
       if (s !== '登录' && s !== '登录/注册') continue;
       if (!vis(e) || e.children.length > 2) continue;
       e.click();
-      return 'ok';
+      await new Promise(function (res) { setTimeout(res, 1600); });
+      var toast = grabToast();
+      return 'ok' + (toast ? '｜页面提示: ' + toast : '');
     }
     return 'no-login-btn';
   })`;

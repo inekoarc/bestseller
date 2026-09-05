@@ -225,8 +225,9 @@ function createCollector(adapter, cfg, emit) {
         emit('log', { level: 'info', msg: '发送验证码到 ' + masked });
         try {
           const r = await adapter.smsFillPhone(page, act.phone);
-          if (r === 'ok') {
-            emit('log', { level: 'info', msg: '✓ 已点击发送验证码，请查收短信' });
+          if (/^ok/.test(r)) {
+            const toast = String(r).includes('｜') ? '（' + String(r).split('｜')[1] + '）' : '';
+            emit('log', { level: 'info', msg: '✓ 已点击发送验证码，请查收短信' + toast });
           } else {
             emit('log', {
               level: 'warn',
@@ -239,10 +240,15 @@ function createCollector(adapter, cfg, emit) {
       } else if (act && act.type === 'submit') {
         try {
           const r = await adapter.smsSubmitCode(page, act.code);
-          emit('log', {
-            level: 'info',
-            msg: r === 'ok' ? '✓ 已提交验证码，等待登录结果...' : '提交验证码未完成（' + r + '），请重试',
-          });
+          if (/^ok/.test(r)) {
+            const toast = String(r).includes('｜') ? '（' + String(r).split('｜')[1] + '）' : '';
+            emit('log', { level: 'info', msg: '✓ 已提交验证码，等待登录结果...' + toast });
+          } else {
+            emit('log', {
+              level: 'warn',
+              msg: '提交验证码未完成（' + r + '），请重试；若页面出现滑块验证，请设 BESTSELLER_HEADLESS=false 用有头模式手动过一次',
+            });
+          }
         } catch (e) {
           emit('log', { level: 'error', msg: '提交验证码失败：' + e.message });
         }

@@ -144,6 +144,12 @@ body { display: flex; flex-direction: column; height: 100vh; }
 .qr-info { font-size: 11px; color: var(--muted); margin-bottom: 16px; }
 .login-actions { display: flex; gap: 8px; }
 
+/* 登录阶段镜像日志（短信登录每步结果/页面提示） */
+.login-log { display: flex; flex-direction: column; gap: 4px; margin-bottom: 12px; max-width: 380px; }
+.login-log-line { font-size: 11px; line-height: 1.5; color: var(--muted); word-break: break-all; }
+.login-log-line.warn { color: var(--warn); }
+.login-log-line.error { color: var(--danger); }
+
 /* ── form ──────────────────────────────────────────── */
 .form-grid { display: flex; flex-direction: column; gap: 14px; }
 .field { display: flex; flex-direction: column; gap: 6px; }
