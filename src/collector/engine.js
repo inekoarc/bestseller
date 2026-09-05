@@ -58,6 +58,8 @@ function createCollector(adapter, cfg, emit) {
     outFile: null,
     imageCacheDir: null,
     totalDone: 0,
+    // 短信登录动作队列（renderer → ipc → handleSmsAction 推入，doSmsLogin 消费）
+    smsQueue: [],
   };
 
   const userDataDir = paths.ensureDir('pw-data', adapter.id);
@@ -81,7 +83,15 @@ function createCollector(adapter, cfg, emit) {
     emit('log', { level: 'info', msg: '启动浏览器：' + adapter.name });
     emit('log', { level: 'info', msg: '输出文件：' + state.outFile });
 
-    state.ctx = await chromiumLazy().launchPersistentContext(userDataDir, launchOptions());
+    // 适配器可指定移动端视口 / UA（拼多多 H5 需要）
+    const lo = launchOptions();
+    if (adapter.viewport) lo.viewport = adapter.viewport;
+    if (adapter.isMobile) {
+      lo.isMobile = true;
+      lo.hasTouch = true;
+    }
+    if (adapter.userAgent) lo.userAgent = adapter.userAgent;
+    state.ctx = await chromiumLazy().launchPersistentContext(userDataDir, lo);
     const page = state.ctx.pages()[0] || (await state.ctx.newPage());
     await browserMod.scrubHeadlessUa(page);
 
@@ -91,7 +101,13 @@ function createCollector(adapter, cfg, emit) {
 
     let loggedIn = await page.evaluate(adapter.isLoggedInSrc).catch(() => false);
     if (!loggedIn) {
-      await doLogin(page);
+      if (adapter.loginMode === 'sms') {
+        await doSmsLogin(page);
+      } else {
+        const r = await doLogin(page);
+        // 扫码被风控/扫不出时，UI 可请求切换到短信验证码登录
+        if (r === 'switch-sms') await doSmsLogin(page);
+      }
     } else {
       emit('log', { level: 'info', msg: '✓ 已登录（复用本地登录态）' });
     }
@@ -123,13 +139,27 @@ function createCollector(adapter, cfg, emit) {
   }
 
   async function doLogin(page) {
-    emit('state', { phase: 'login' });
+    emit('state', { phase: 'login', smsFallback: !!adapter.smsFallback });
     emit('log', { level: 'info', msg: '等待扫码登录...（请用手机 ' + adapter.name + ' 扫二维码）' });
     await page.goto(adapter.loginUrl, { waitUntil: 'networkidle', timeout: 60000 }).catch(() => {});
     await sleep(2000);
 
-    let qr = await grabQR(page, 20000);
+    // 适配器钩子：部分登录页（如拼多多）落地默认是其他登录方式，需先点「扫码登录」页签
+    if (adapter.enterQrLogin) {
+      await adapter.enterQrLogin(page).catch(() => {});
+    }
+
+    let qr = await grabQR(page, 15000);
     if (!qr) {
+      if (adapter.smsFallback) {
+        // 拼多多实测：设备短时间反复触发登录后，服务端会收起扫码入口（_x_no_login_launch=1）。
+        // 此时不打扰用户，自动降级到短信验证码登录（备用路径已验证可用）。
+        emit('log', {
+          level: 'warn',
+          msg: '扫码入口未出现或二维码未渲染（可能被风控临时收起），自动切换短信验证码登录',
+        });
+        return 'switch-sms';
+      }
       emit('log', { level: 'warn', msg: '未自动定位二维码，请在浏览器窗口内手动扫码' });
     } else {
       pushQR(qr);
@@ -139,6 +169,13 @@ function createCollector(adapter, cfg, emit) {
     let lastRefresh = Date.now();
     while (Date.now() < deadline) {
       if (state.canceled) throw new Error('用户取消');
+      // UI 可请求切换到短信验证码登录（扫码被风控/扫不出时的备用路径）
+      const sw = state.smsQueue.findIndex((a) => a.type === 'use-sms');
+      if (sw >= 0) {
+        state.smsQueue.splice(sw, 1);
+        emit('log', { level: 'info', msg: '切换到短信验证码登录' });
+        return 'switch-sms';
+      }
       await sleep(2000);
 
       let ok = await page.evaluate(adapter.isLoggedInSrc).catch(() => false);
@@ -162,6 +199,63 @@ function createCollector(adapter, cfg, emit) {
     throw new Error('等待扫码超时');
   }
 
+  /**
+   * 短信验证码登录（备用路径：拼多多扫码被风控/扫不出时由 UI 切换进入）。
+   * 交互由 renderer 完成：输入手机号/验证码 → ipc 'collect:sms-action' → smsQueue，
+   * 本循环每 2 秒消费队列并轮询登录态。
+   */
+  async function doSmsLogin(page) {
+    emit('state', { phase: 'login', loginMode: 'sms' });
+    emit('log', { level: 'info', msg: '【' + adapter.name + '】H5 仅支持短信验证码登录，请在界面输入手机号' });
+    await page.goto(adapter.loginUrl, { waitUntil: 'domcontentloaded', timeout: 60000 }).catch(() => {});
+    await sleep(2500);
+
+    if (await page.evaluate(adapter.isLoggedInSrc).catch(() => false)) return true;
+
+    const deadline = Date.now() + 300000; // 5 分钟
+    while (Date.now() < deadline) {
+      if (state.canceled) throw new Error('用户取消');
+      const act = state.smsQueue.length ? state.smsQueue.shift() : null;
+      if (act && act.type === 'use-sms') {
+        // 切换请求已在 doLogin 中消费，此处残留则静默忽略
+        continue;
+      }
+      if (act && act.type === 'send-code') {
+        const masked = String(act.phone || '').replace(/(\d{3})\d{4}(\d{4})/, '$1****$2');
+        emit('log', { level: 'info', msg: '发送验证码到 ' + masked });
+        try {
+          const r = await adapter.smsFillPhone(page, act.phone);
+          if (r === 'ok') {
+            emit('log', { level: 'info', msg: '✓ 已点击发送验证码，请查收短信' });
+          } else {
+            emit('log', {
+              level: 'warn',
+              msg: '发送验证码未完成（' + r + '），请重试；若页面出现滑块验证，请设 BESTSELLER_HEADLESS=false 用有头模式手动过一次',
+            });
+          }
+        } catch (e) {
+          emit('log', { level: 'error', msg: '发送验证码失败：' + e.message });
+        }
+      } else if (act && act.type === 'submit') {
+        try {
+          const r = await adapter.smsSubmitCode(page, act.code);
+          emit('log', {
+            level: 'info',
+            msg: r === 'ok' ? '✓ 已提交验证码，等待登录结果...' : '提交验证码未完成（' + r + '），请重试',
+          });
+        } catch (e) {
+          emit('log', { level: 'error', msg: '提交验证码失败：' + e.message });
+        }
+      } else if (act) {
+        emit('log', { level: 'warn', msg: '未知登录操作：' + act.type });
+      }
+
+      await sleep(2000);
+      if (await page.evaluate(adapter.isLoggedInSrc).catch(() => false)) return true;
+    }
+    throw new Error('短信登录超时（5 分钟）');
+  }
+
   function pushQR(qr) {
     const dir = paths.ensureDir('pw-data', adapter.id);
     const file = path.join(dir, 'qrcode.png');
@@ -182,15 +276,26 @@ function createCollector(adapter, cfg, emit) {
     // 等真实卡片（淘宝首屏 20~30s）
     const t0 = Date.now();
     while (Date.now() - t0 < adapter.firstRenderTimeout) {
-      const n = await page
-        .evaluate(
-          '(function (s){ try { return document.querySelectorAll(s).length; } catch (e) { return 0; } })(' +
-            JSON.stringify(findPlatformSearchSelector(adapter)) +
-            ')'
-        )
-        .catch(() => 0);
-      if (n >= 5) break;
+      if (adapter.waitCardsSrc) {
+        // 适配器自定义等卡逻辑（如拼多多按价格叶子+rawData计数，不依赖卡片类名）
+        const ok = await page.evaluate(adapter.waitCardsSrc(5)).catch(() => false);
+        if (ok) break;
+      } else {
+        const n = await page
+          .evaluate(
+            '(function (s){ try { return document.querySelectorAll(s).length; } catch (e) { return 0; } })(' +
+              JSON.stringify(findPlatformSearchSelector(adapter)) +
+              ')'
+          )
+          .catch(() => 0);
+        if (n >= 5) break;
+      }
       await sleep(1500);
+    }
+
+    // 首屏等待超时兜底：适配器可提供交互式修复（如拼多多改走首页搜索链路）
+    if (adapter.fixupSearch) {
+      await adapter.fixupSearch(page, kw, { emit }).catch(() => {});
     }
 
     let sortApplied = true;
@@ -333,6 +438,12 @@ function createCollector(adapter, cfg, emit) {
         break;
       }
 
+      if (adapter.infiniteScroll) {
+        // 无分页器（如拼多多 H5）：下一轮滚到底触发加载更多，靠 stalePages 判定结束
+        pageIdx++;
+        continue;
+      }
+
       const click = await page.evaluate(adapter.clickPageSrc(pageIdx + 1)).catch(() => 'none');
       if (click === 'none' && adapter.nextPageUrl) {
         const npu = adapter.nextPageUrl(pageIdx + 1).replace('{kw}', encodeURIComponent(kw));
@@ -392,6 +503,21 @@ function createCollector(adapter, cfg, emit) {
     },
     isRunning() {
       return !!state.ctx;
+    },
+    /** renderer → ipc 推入登录动作（{ type: 'send-code'|'submit'|'use-sms', phone, code }） */
+    handleSmsAction(action) {
+      if (!action || !action.type) return { ok: false, error: '无效操作' };
+      if (action.type !== 'send-code' && action.type !== 'submit' && action.type !== 'use-sms') {
+        return { ok: false, error: '未知操作类型' };
+      }
+      if (action.type === 'send-code' && !/^1\d{10}$/.test(String(action.phone || ''))) {
+        return { ok: false, error: '手机号格式不正确' };
+      }
+      if (action.type === 'submit' && !/^\d{4,8}$/.test(String(action.code || ''))) {
+        return { ok: false, error: '验证码格式不正确' };
+      }
+      state.smsQueue.push(action);
+      return { ok: true };
     },
   };
 }

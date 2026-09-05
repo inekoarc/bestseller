@@ -23,6 +23,7 @@ contextBridge.exposeInMainWorld('api', {
   pickOutputDir: () => ipcRenderer.invoke('dialog:pickOutputDir'),
   openFile: (p) => ipcRenderer.invoke('shell:openFile', p),
   showInFolder: (p) => ipcRenderer.invoke('shell:showInFolder', p),
+  smsAction: (a) => ipcRenderer.invoke('collect:sms-action', a),
   onState: subscribe('collector:state'),
   onLog: subscribe('collector:log'),
   onQr: subscribe('collector:qr'),

@@ -50,6 +50,13 @@ function register(deps) {
     return { ok: true };
   });
 
+  // 短信登录交互（拼多多 H5）：renderer 提交手机号/验证码动作
+  ipcMain.handle('collect:sms-action', (_e, action) => {
+    const c = getCollector();
+    if (!c || !c.isRunning()) throw new Error('当前没有运行中的登录流程');
+    return c.handleSmsAction(action);
+  });
+
   ipcMain.handle('dialog:pickOutputDir', async () => {
     const w = getMainWindow();
     const res = await dialog.showOpenDialog(w, { properties: ['openDirectory'] });

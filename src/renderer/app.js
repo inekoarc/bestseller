@@ -27,6 +27,7 @@ const els = {
   qrInfo: document.getElementById('qr-info'),
   btnRecheck: document.getElementById('btn-recheck'),
   btnCancelLogin: document.getElementById('btn-cancel-login'),
+  btnSwitchSms: document.getElementById('btn-switch-sms'),
   kw: document.getElementById('kw'),
   topN: document.getElementById('topN'),
   outputDir: document.getElementById('outputDir'),
@@ -180,8 +181,13 @@ bapi.onState((p) => {
     els.loginStatusLine.textContent = '正在打开登录页...';
     els.loginStatusLine.className = 'status-line wait';
   } else if (p.phase === 'login') {
-    showPanel('login'); setStep(2); setStatus('等待扫码', 'busy');
-    els.loginStatusLine.textContent = '等待扫码...';
+    showPanel('login'); setStep(2);
+    const sms = p.loginMode === 'sms';
+    if (els.qrWrap) els.qrWrap.classList.toggle('hidden', sms);
+    if (els.smsForm) els.smsForm.classList.toggle('hidden', !sms);
+    if (els.btnSwitchSms) els.btnSwitchSms.classList.toggle('hidden', sms || !p.smsFallback);
+    setStatus(sms ? '短信登录' : '等待扫码', 'busy');
+    els.loginStatusLine.textContent = sms ? '请输入手机号获取验证码' : '等待扫码...';
     els.loginStatusLine.className = 'status-line wait';
   } else if (p.phase === 'logged-in') {
     els.loginStatusLine.textContent = '✓ 登录成功，准备开始采集';
@@ -258,6 +264,75 @@ els.btnRecheck.addEventListener('click', async () => {
 });
 
 els.btnCancelLogin.addEventListener('click', async () => {
+  await bapi.stop();
+  state.platform = null;
+  showPanel('pick'); setStep(1); setStatus('已取消', '');
+});
+
+// ── 短信登录（扫码备用路径） ─────────────────────────
+els.btnSwitchSms.addEventListener('click', async () => {
+  els.loginStatusLine.textContent = '正在切换到短信验证码登录...';
+  els.loginStatusLine.className = 'status-line wait';
+  try {
+    await bapi.smsAction({ type: 'use-sms' });
+  } catch (e) {
+    els.loginStatusLine.textContent = '切换失败：' + (e.message || e);
+    els.loginStatusLine.className = 'status-line err';
+  }
+});
+
+let smsCountdown = null;
+els.btnSmsSend.addEventListener('click', async () => {
+  const phone = (els.smsPhone.value || '').trim();
+  if (!/^1\d{10}$/.test(phone)) {
+    els.loginStatusLine.textContent = '请输入 11 位手机号';
+    els.loginStatusLine.className = 'status-line err';
+    return;
+  }
+  els.btnSmsSend.disabled = true;
+  els.loginStatusLine.textContent = '正在发送验证码...';
+  els.loginStatusLine.className = 'status-line wait';
+  try {
+    const r = await bapi.smsAction({ type: 'send-code', phone });
+    if (r && r.ok) {
+      els.loginStatusLine.textContent = '验证码已发送，请查收短信';
+      let n = 60;
+      clearInterval(smsCountdown);
+      smsCountdown = setInterval(() => {
+        els.btnSmsSend.textContent = --n > 0 ? n + 's 后重发' : '发送验证码';
+        if (n <= 0) { clearInterval(smsCountdown); els.btnSmsSend.disabled = false; }
+      }, 1000);
+    } else {
+      els.loginStatusLine.textContent = '发送失败：' + ((r && r.error) || '未知原因');
+      els.loginStatusLine.className = 'status-line err';
+      els.btnSmsSend.disabled = false;
+    }
+  } catch (e) {
+    els.loginStatusLine.textContent = '发送失败：' + (e.message || e);
+    els.loginStatusLine.className = 'status-line err';
+    els.btnSmsSend.disabled = false;
+  }
+});
+
+els.btnSmsLogin.addEventListener('click', async () => {
+  const code = (els.smsCode.value || '').trim();
+  if (!/^\d{4,8}$/.test(code)) {
+    els.loginStatusLine.textContent = '请输入短信验证码';
+    els.loginStatusLine.className = 'status-line err';
+    return;
+  }
+  els.loginStatusLine.textContent = '验证码已提交，等待登录...';
+  els.loginStatusLine.className = 'status-line wait';
+  try {
+    await bapi.smsAction({ type: 'submit', code });
+  } catch (e) {
+    els.loginStatusLine.textContent = '提交失败：' + (e.message || e);
+    els.loginStatusLine.className = 'status-line err';
+  }
+});
+
+els.btnCancelSms.addEventListener('click', async () => {
+  clearInterval(smsCountdown);
   await bapi.stop();
   state.platform = null;
   showPanel('pick'); setStep(1); setStatus('已取消', '');

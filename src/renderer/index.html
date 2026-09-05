@@ -34,13 +34,13 @@
   <section class="panel" id="panel-pick">
     <div class="panel-title">选择平台</div>
     <div class="platforms" id="platforms"></div>
-    <div class="hint">抖音商城为实验性支持，需先运行「抖音探测」确认可行性；京东必须先扫码登录。</div>
+    <div class="hint">京东必须先扫码登录；拼多多为移动端 H5，首次使用需手机验证码登录。</div>
   </section>
 
   <section class="panel hidden" id="panel-login">
-    <div class="panel-title">扫码登录</div>
+    <div class="panel-title">登录</div>
     <div class="login-grid">
-      <div class="qr-wrap">
+      <div class="qr-wrap" id="qr-wrap">
         <div class="qr-frame">
           <img id="qr-img" alt="二维码" />
           <div class="qr-empty" id="qr-placeholder">正在打开登录页...</div>
@@ -49,9 +49,24 @@
       </div>
       <div class="login-status">
         <div class="status-line" id="login-status-line">等待中</div>
+        <div class="sms-form hidden" id="sms-form">
+          <div class="input-row">
+            <input type="text" id="sms-phone" maxlength="11" placeholder="手机号">
+            <button class="btn" id="btn-sms-send">发送验证码</button>
+          </div>
+          <div class="input-row">
+            <input type="text" id="sms-code" maxlength="8" placeholder="短信验证码">
+            <button class="btn primary" id="btn-sms-login">登录</button>
+          </div>
+          <div class="sms-tip">扫码扫不出或被风控时，可改用短信验证码登录。首次登录后登录态保留在本地，之后无需重复登录。</div>
+          <div class="login-actions">
+            <button class="btn ghost" id="btn-cancel-sms">取消</button>
+          </div>
+        </div>
         <div class="qr-info" id="qr-info"></div>
         <div class="login-actions">
           <button class="btn" id="btn-recheck">我已扫码，刷新</button>
+          <button class="btn ghost hidden" id="btn-switch-sms">改用短信验证码登录</button>
           <button class="btn ghost" id="btn-cancel-login">取消</button>
         </div>
       </div>

@@ -135,6 +135,12 @@ body { display: flex; flex-direction: column; height: 100vh; }
 .status-line.err { color: var(--danger); }
 .status-line.wait { color: var(--warn); }
 
+.hidden { display: none !important; }
+
+/* ── 短信登录（拼多多 H5） ──────────────────────────── */
+.sms-form { display: flex; flex-direction: column; gap: 10px; max-width: 380px; }
+.sms-tip { font-size: 11px; color: var(--muted); line-height: 1.6; }
+
 .qr-info { font-size: 11px; color: var(--muted); margin-bottom: 16px; }
 .login-actions { display: flex; gap: 8px; }
 
