@@ -57,8 +57,9 @@ const SELECTORS = {
 const RISK_PATTERNS = ['请完成验证', '安全验证', '滑块', '验证码输入', '访问异常', '操作过于频繁', '系统繁忙'];
 
 const IS_LOGGED_IN_SRC = `(function () {
-  if (/login\\.html|\\/login\\?|passport/.test(location.href)) return false;
-  // 拼多多 H5 登录态由 PDDAccessToken Cookie 承载（未登录时请求全带 pdduid=0）
+  // 拼多多 H5 登录态由 PDDAccessToken Cookie 承载。
+  // engine.js 已优先通过 Playwright context.cookies() 读取（支持 HttpOnly），
+  // 此处作为页面内兜底：Cookie 可读即认为已登录。
   return /(?:^|;\\s*)PDDAccessToken=[^;]/.test(document.cookie || '');
 })()`;
 
@@ -145,7 +146,8 @@ const SMS_FILL_PHONE_SRC = `
     return 'no-send-btn';
   })`;
 
-/** 短信登录第二步：填验证码 → 点「登录」。返回状态码供日志输出 */
+/** 短信登录第二步：填验证码 → 点「登录」。返回状态码供日志输出。
+ *  注意：这里只保证「登录按钮被点击」，真正的登录结果由 engine 轮询 isLoggedIn 判定。 */
 const SMS_SUBMIT_SRC = `
   (async function (code) {
     ${SET_VAL_SRC}
@@ -175,9 +177,9 @@ const SMS_SUBMIT_SRC = `
       if (s !== '登录' && s !== '登录/注册') continue;
       if (!vis(e) || e.children.length > 2) continue;
       e.click();
-      await new Promise(function (res) { setTimeout(res, 1600); });
+      await new Promise(function (res) { setTimeout(res, 1200); });
       var toast = grabToast();
-      return 'ok' + (toast ? '｜页面提示: ' + toast : '');
+      return 'clicked' + (toast ? '｜页面提示: ' + toast : '');
     }
     return 'no-login-btn';
   })`;

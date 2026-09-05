@@ -49,6 +49,24 @@ function nowStampFileSafe() {
   return nowStamp().replace(/[ :]/g, '-');
 }
 
+/**
+ * 判定当前是否已登录。
+ * 优先使用适配器声明的登录态 Cookie（Playwright context.cookies() 可读 HttpOnly），
+ * 再兜底使用页面内的 JS 自定义判定（document.cookie / DOM 文本等）。
+ */
+async function isLoggedIn(page, adapter) {
+  if (adapter.loginCookies && adapter.loginCookies.length) {
+    try {
+      const cs = await page.context().cookies();
+      const names = new Set(cs.map((c) => c.name));
+      if (adapter.loginCookies.some((n) => names.has(n))) return true;
+    } catch (_) {
+      // 兜底继续走页面判定
+    }
+  }
+  return await page.evaluate(adapter.isLoggedInSrc).catch(() => false);
+}
+
 function createCollector(adapter, cfg, emit) {
   const state = {
     canceled: false,
@@ -99,7 +117,7 @@ function createCollector(adapter, cfg, emit) {
     await page.goto(adapter.homeUrl, { waitUntil: 'domcontentloaded', timeout: 60000 }).catch(() => {});
     await sleep(3000);
 
-    let loggedIn = await page.evaluate(adapter.isLoggedInSrc).catch(() => false);
+    let loggedIn = await isLoggedIn(page, adapter).catch(() => false);
     if (!loggedIn) {
       if (adapter.loginMode === 'sms') {
         await doSmsLogin(page);
@@ -178,14 +196,14 @@ function createCollector(adapter, cfg, emit) {
       }
       await sleep(2000);
 
-      let ok = await page.evaluate(adapter.isLoggedInSrc).catch(() => false);
+      let ok = await isLoggedIn(page, adapter).catch(() => false);
       if (!ok) {
         const url = page.url();
         if (!/login|passport|login\.taobao|login\.jd/i.test(url) && url !== 'about:blank') {
           // 跳出了登录域，二次确认
           await page.goto(adapter.homeUrl, { waitUntil: 'domcontentloaded', timeout: 60000 }).catch(() => {});
           await sleep(2500);
-          ok = await page.evaluate(adapter.isLoggedInSrc).catch(() => false);
+          ok = await isLoggedIn(page, adapter).catch(() => false);
         }
       }
       if (ok) return true;
@@ -210,7 +228,7 @@ function createCollector(adapter, cfg, emit) {
     await page.goto(adapter.loginUrl, { waitUntil: 'domcontentloaded', timeout: 60000 }).catch(() => {});
     await sleep(2500);
 
-    if (await page.evaluate(adapter.isLoggedInSrc).catch(() => false)) return true;
+    if (await isLoggedIn(page, adapter).catch(() => false)) return true;
 
     const deadline = Date.now() + 300000; // 5 分钟
     while (Date.now() < deadline) {
@@ -240,9 +258,9 @@ function createCollector(adapter, cfg, emit) {
       } else if (act && act.type === 'submit') {
         try {
           const r = await adapter.smsSubmitCode(page, act.code);
-          if (/^ok/.test(r)) {
-            const toast = String(r).includes('｜') ? '（' + String(r).split('｜')[1] + '）' : '';
-            emit('log', { level: 'info', msg: '✓ 已提交验证码，等待登录结果...' + toast });
+          const toast = String(r).includes('｜') ? '（' + String(r).split('｜')[1] + '）' : '';
+          if (/^(clicked|ok)/.test(r)) {
+            emit('log', { level: 'info', msg: '✓ 已点击登录，等待结果...' + toast });
           } else {
             emit('log', {
               level: 'warn',
@@ -257,7 +275,7 @@ function createCollector(adapter, cfg, emit) {
       }
 
       await sleep(2000);
-      if (await page.evaluate(adapter.isLoggedInSrc).catch(() => false)) return true;
+      if (await isLoggedIn(page, adapter).catch(() => false)) return true;
     }
     throw new Error('短信登录超时（5 分钟）');
   }

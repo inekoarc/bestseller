@@ -199,14 +199,17 @@ bapi.onState((p) => {
     if (els.btnRecheck) els.btnRecheck.classList.toggle('hidden', sms);
     if (els.btnCancelLogin) els.btnCancelLogin.classList.toggle('hidden', sms);
     if (els.loginLog) els.loginLog.innerHTML = '';
+    if (els.btnSmsLogin) els.btnSmsLogin.disabled = false;
     setStatus(sms ? '短信登录' : '等待扫码', 'busy');
     els.loginStatusLine.textContent = sms ? '请输入手机号获取验证码' : '等待扫码...';
     els.loginStatusLine.className = 'status-line wait';
   } else if (p.phase === 'logged-in') {
     els.loginStatusLine.textContent = '✓ 登录成功，准备开始采集';
     els.loginStatusLine.className = 'status-line ok';
+    els.btnSmsLogin.disabled = false;
   } else if (p.phase === 'collecting') {
     showPanel('collect'); setStep(4); setStatus('采集中', 'busy');
+    els.btnSmsLogin.disabled = false;
   } else if (p.phase === 'done') {
     state.lastOutput = p.output;
     state.totalDone = p.total;
@@ -342,6 +345,7 @@ els.btnSmsLogin.addEventListener('click', async () => {
     els.loginStatusLine.className = 'status-line err';
     return;
   }
+  els.btnSmsLogin.disabled = true;
   els.loginStatusLine.textContent = '验证码已提交，等待登录...';
   els.loginStatusLine.className = 'status-line wait';
   try {
@@ -349,6 +353,7 @@ els.btnSmsLogin.addEventListener('click', async () => {
   } catch (e) {
     els.loginStatusLine.textContent = '提交失败：' + (e.message || e);
     els.loginStatusLine.className = 'status-line err';
+    els.btnSmsLogin.disabled = false;
   }
 });
 
@@ -357,6 +362,7 @@ els.btnCancelSms.addEventListener('click', async () => {
   await bapi.stop();
   state.platform = null;
   showPanel('pick'); setStep(1); setStatus('已取消', '');
+  els.btnSmsLogin.disabled = false;
 });
 
 els.btnPause.addEventListener('click', async () => {
