@@ -4,6 +4,7 @@ out/
 out2/
 out3/
 out4/
+out5/
 dist/
 # 打包用的 Chromium（约 400MB），由 scripts/copy-chromium.js 生成本地副本
 resources/

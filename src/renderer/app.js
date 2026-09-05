@@ -28,6 +28,13 @@ const els = {
   btnRecheck: document.getElementById('btn-recheck'),
   btnCancelLogin: document.getElementById('btn-cancel-login'),
   btnSwitchSms: document.getElementById('btn-switch-sms'),
+  qrWrap: document.getElementById('qr-wrap'),
+  smsForm: document.getElementById('sms-form'),
+  btnSmsSend: document.getElementById('btn-sms-send'),
+  smsPhone: document.getElementById('sms-phone'),
+  btnSmsLogin: document.getElementById('btn-sms-login'),
+  smsCode: document.getElementById('sms-code'),
+  btnCancelSms: document.getElementById('btn-cancel-sms'),
   kw: document.getElementById('kw'),
   topN: document.getElementById('topN'),
   outputDir: document.getElementById('outputDir'),
@@ -99,7 +106,7 @@ function renderPlatforms(platforms) {
       '<div class="name">' + escape(p.name) +
         (p.experimental ? '<span class="badge">实验</span>' : '') +
       '</div>' +
-      '<div class="desc">' + escape(p.experimental ? (p.reason || '暂未启用') : '已支持') + '</div>';
+      '<div class="desc">' + escape(p.desc || (p.experimental ? (p.reason || '暂未启用') : '已支持')) + '</div>';
     if (!p.experimental) {
       c.addEventListener('click', () => pickPlatform(p.id));
     }
