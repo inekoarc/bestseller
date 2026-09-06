@@ -1,6 +1,6 @@
 {
   "name": "bestseller",
-  "version": "0.2.6",
+  "version": "0.2.7",
   "description": "电商爆款商品采集桌面软件（淘宝 / 京东 / 拼多多 / 抖音商城）",
   "main": "src/main/main.js",
   "author": "",

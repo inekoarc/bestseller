@@ -2,9 +2,11 @@
 
 const { ipcMain, dialog, shell } = require('electron');
 const fs = require('fs');
+const path = require('path');
 
 const platforms = require('../collector/platforms');
 const { createCollector } = require('../collector/engine');
+const paths = require('../collector/paths');
 
 function register(deps) {
   const { getMainWindow, setCollector, getCollector } = deps;
@@ -55,6 +57,24 @@ function register(deps) {
     const c = getCollector();
     if (!c || !c.isRunning()) throw new Error('当前没有运行中的登录流程');
     return c.handleSmsAction(action);
+  });
+
+  // 重置登录配置：删除该平台的持久化浏览器数据（被拼多多风控标记时用于清除标记）
+  ipcMain.handle('collect:reset-login', async (_e, platformId) => {
+    if (getCollector() && getCollector().isRunning()) {
+      return { ok: false, error: '请先停止当前任务' };
+    }
+    const adapter = platforms.get(platformId);
+    if (!adapter) return { ok: false, error: '未知平台' };
+    const dir = path.join(paths.getBase(), 'pw-data', adapter.id);
+    try {
+      if (fs.existsSync(dir)) {
+        fs.rmSync(dir, { recursive: true, force: true });
+      }
+      return { ok: true };
+    } catch (e) {
+      return { ok: false, error: e.message };
+    }
   });
 
   ipcMain.handle('dialog:pickOutputDir', async () => {

@@ -29,6 +29,7 @@ const els = {
   btnRecheck: document.getElementById('btn-recheck'),
   btnCancelLogin: document.getElementById('btn-cancel-login'),
   btnSwitchSms: document.getElementById('btn-switch-sms'),
+  btnResetLogin: document.getElementById('btn-reset-login'),
   qrWrap: document.getElementById('qr-wrap'),
   smsForm: document.getElementById('sms-form'),
   btnSmsSend: document.getElementById('btn-sms-send'),
@@ -368,6 +369,29 @@ els.btnCancelSms.addEventListener('click', async () => {
   state.platform = null;
   showPanel('pick'); setStep(1); setStatus('已取消', '');
   els.btnSmsLogin.disabled = false;
+});
+
+// 重置登录配置：清除被拼多多风控标记的浏览器数据，用全新未标记上下文重新登录
+els.btnResetLogin.addEventListener('click', async () => {
+  if (!state.platform) return;
+  const name = (state.platforms.find((p) => p.id === state.platform) || {}).name || '该平台';
+  if (!confirm('确定重置「' + name + '」的本地登录数据？\n将清除被风控标记的浏览器缓存，之后请优先用手机扫码登录。')) return;
+  try {
+    await bapi.stop().catch(() => {});
+    els.btnResetLogin.disabled = true;
+    const r = await bapi.resetLogin(state.platform);
+    if (r && r.ok) {
+      logLine('success', '✓ 已重置登录配置，正在用全新浏览器数据重新登录...');
+      // 复用已填的配置重新发起（先回到登录流程，优先扫码）
+      await startCollect();
+    } else {
+      logLine('error', '重置失败：' + ((r && r.error) || '未知原因'));
+    }
+  } catch (e) {
+    logLine('error', '重置失败：' + (e.message || e));
+  } finally {
+    els.btnResetLogin.disabled = false;
+  }
 });
 
 els.btnPause.addEventListener('click', async () => {

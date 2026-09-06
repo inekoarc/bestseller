@@ -144,6 +144,8 @@ function createCollector(adapter, cfg, emit) {
         const r = await doLogin(page);
         // 扫码被风控/扫不出时，UI 可请求切换到短信验证码登录
         if (r === 'switch-sms') await doSmsLogin(page);
+        else if (r === 'risk')
+          throw new Error('登录被拼多多风控拦截，请点「重置登录配置」后用手机扫码登录');
       }
     } else {
       emit('log', { level: 'info', msg: '✓ 已登录（复用本地登录态）' });
@@ -180,6 +182,19 @@ function createCollector(adapter, cfg, emit) {
     emit('log', { level: 'info', msg: '等待扫码登录...（请用手机 ' + adapter.name + ' 扫二维码）' });
     await page.goto(adapter.loginUrl, { waitUntil: 'networkidle', timeout: 60000 }).catch(() => {});
     await sleep(2000);
+
+    // 风控检测：拼多多对反复自动登录的浏览器会下发 _x_no_login_launch=1，
+    // 此时二维码页签消失、短信提交被静默拦截，表现为「点了没反应」。
+    // 该标记累积在持久化浏览器数据里（全新上下文不会出现），需重置登录配置。
+    if (/_x_no_login_launch=1/.test(page.url())) {
+      emit('log', {
+        level: 'warn',
+        msg:
+          '⚠ 拼多多对该浏览器启用了登录风控（_x_no_login_launch），二维码与短信登录都会被静默拦截。' +
+          '请点「重置登录配置」清除被标记的浏览器数据后重试（重置后建议用手机扫码登录），或换个网络环境。',
+      });
+      return 'risk';
+    }
 
     // 适配器钩子：部分登录页（如拼多多）落地默认是其他登录方式，需先点「扫码登录」页签
     if (adapter.enterQrLogin) {
@@ -237,6 +252,16 @@ function createCollector(adapter, cfg, emit) {
     await page.goto(adapter.loginUrl, { waitUntil: 'domcontentloaded', timeout: 60000 }).catch(() => {});
     await sleep(2500);
 
+    // 风控检测：被标记的浏览器数据会让登录永远失败，直接给出可操作的错误，避免静默卡 5 分钟
+    if (/_x_no_login_launch=1/.test(page.url())) {
+      emit('log', {
+        level: 'warn',
+        msg:
+          '⚠ 登录被拼多多风控拦截（_x_no_login_launch）。点「重置登录配置」清除被标记的浏览器数据后用手机扫码登录，或换网络后重试。',
+      });
+      throw new Error('登录被拼多多风控拦截，请点「重置登录配置」后用手机扫码登录');
+    }
+
     if (await checkLoginWithUrlFallback(page, adapter)) return true;
 
     let submittedAt = null;
@@ -278,6 +303,14 @@ function createCollector(adapter, cfg, emit) {
             while (Date.now() - quickStart < 8000) {
               await sleep(500);
               if (await checkLoginWithUrlFallback(page, adapter)) return true;
+              // 提交后若被风控拦截，URL 会出现 _x_no_login_launch=1，验证码根本未被接受
+              if (/_x_no_login_launch=1/.test(page.url())) {
+                emit('log', {
+                  level: 'warn',
+                  msg: '登录提交被拼多多风控拦截（_x_no_login_launch），验证码未被接受。请点「重置登录配置」后用手机扫码登录',
+                });
+                break;
+              }
               // 失败提示通常会在 1-3 秒内出现
               const fb = await page
                 .evaluate(
@@ -304,6 +337,14 @@ function createCollector(adapter, cfg, emit) {
       }
 
       await sleep(2000);
+      // 提交后若 URL 出现风控标记，立即停止无意义的轮询
+      if (/_x_no_login_launch=1/.test(page.url())) {
+        emit('log', {
+          level: 'warn',
+          msg: '登录被拼多多风控拦截（_x_no_login_launch）。点「重置登录配置」后用手机扫码登录，或换网络后重试。',
+        });
+        throw new Error('登录被拼多多风控拦截，请点「重置登录配置」后用手机扫码登录');
+      }
       if (await checkLoginWithUrlFallback(page, adapter)) return true;
 
       // 提交后持续未登录，约 20 秒打印一次 Cookie 诊断，便于定位 HttpOnly Cookie 是否写入

@@ -185,6 +185,8 @@ textarea:focus, input:focus { outline: none; border-color: var(--accent); }
 .btn.danger { background: var(--danger-2); border-color: var(--danger-2); color: #fff; }
 .btn.danger:hover { background: var(--danger); }
 .btn.ghost { background: transparent; }
+.btn.ghost.warn { color: var(--warn, #e8a33d); border-color: var(--warn, #e8a33d); }
+.btn.ghost.warn:hover { background: rgba(232,163,61,.12); }
 
 /* ── progress ──────────────────────────────────────── */
 .progress-wrap { display: flex; align-items: center; gap: 12px; margin-bottom: 14px; }
