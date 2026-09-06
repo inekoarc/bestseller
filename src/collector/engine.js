@@ -70,6 +70,22 @@ async function isLoggedIn(page, adapter) {
   return await page.evaluate(adapter.isLoggedInSrc).catch(() => false);
 }
 
+/**
+ * 检查登录态，并兜底处理「已跳出登录域」的情况。
+ * 平台登录成功后通常会从 login.html 跳转到首页/portal，此时即使 Cookie 判定策略不完美，
+ * 也应回到 homeUrl 再确认一次，避免短信/扫码路径行为不一致导致永久卡住。
+ */
+async function checkLoginWithUrlFallback(page, adapter) {
+  if (await isLoggedIn(page, adapter).catch(() => false)) return true;
+  const url = page.url();
+  if (!/login|passport/i.test(url) && url !== 'about:blank') {
+    await page.goto(adapter.homeUrl, { waitUntil: 'domcontentloaded', timeout: 60000 }).catch(() => {});
+    await sleep(2500);
+    return await isLoggedIn(page, adapter).catch(() => false);
+  }
+  return false;
+}
+
 function createCollector(adapter, cfg, emit) {
   const state = {
     canceled: false,
@@ -199,17 +215,7 @@ function createCollector(adapter, cfg, emit) {
       }
       await sleep(2000);
 
-      let ok = await isLoggedIn(page, adapter).catch(() => false);
-      if (!ok) {
-        const url = page.url();
-        if (!/login|passport|login\.taobao|login\.jd/i.test(url) && url !== 'about:blank') {
-          // 跳出了登录域，二次确认
-          await page.goto(adapter.homeUrl, { waitUntil: 'domcontentloaded', timeout: 60000 }).catch(() => {});
-          await sleep(2500);
-          ok = await isLoggedIn(page, adapter).catch(() => false);
-        }
-      }
-      if (ok) return true;
+      if (await checkLoginWithUrlFallback(page, adapter)) return true;
 
       if (Date.now() - lastRefresh > 60000) {
         const newQr = await grabQR(page, 5000);
@@ -231,7 +237,7 @@ function createCollector(adapter, cfg, emit) {
     await page.goto(adapter.loginUrl, { waitUntil: 'domcontentloaded', timeout: 60000 }).catch(() => {});
     await sleep(2500);
 
-    if (await isLoggedIn(page, adapter).catch(() => false)) return true;
+    if (await checkLoginWithUrlFallback(page, adapter)) return true;
 
     let submittedAt = null;
     let diagOnce = false;
@@ -271,7 +277,7 @@ function createCollector(adapter, cfg, emit) {
             const quickStart = Date.now();
             while (Date.now() - quickStart < 8000) {
               await sleep(500);
-              if (await isLoggedIn(page, adapter).catch(() => false)) return true;
+              if (await checkLoginWithUrlFallback(page, adapter)) return true;
               // 失败提示通常会在 1-3 秒内出现
               const fb = await page
                 .evaluate(
@@ -298,7 +304,7 @@ function createCollector(adapter, cfg, emit) {
       }
 
       await sleep(2000);
-      if (await isLoggedIn(page, adapter).catch(() => false)) return true;
+      if (await checkLoginWithUrlFallback(page, adapter)) return true;
 
       // 提交后持续未登录，约 20 秒打印一次 Cookie 诊断，便于定位 HttpOnly Cookie 是否写入
       if (!diagOnce && submittedAt && Date.now() - submittedAt > 18000) {
