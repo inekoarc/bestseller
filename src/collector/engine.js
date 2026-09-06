@@ -58,8 +58,11 @@ async function isLoggedIn(page, adapter) {
   if (adapter.loginCookies && adapter.loginCookies.length) {
     try {
       const cs = await page.context().cookies();
-      const names = new Set(cs.map((c) => c.name));
-      if (adapter.loginCookies.some((n) => names.has(n))) return true;
+      for (const name of adapter.loginCookies) {
+        const c = cs.find((x) => x.name === name);
+        // 部分平台未登录时也会种下同名 Cookie（值常为 '0' 或空），需同时校验 value
+        if (c && c.value && c.value !== '0') return true;
+      }
     } catch (_) {
       // 兜底继续走页面判定
     }
@@ -230,6 +233,8 @@ function createCollector(adapter, cfg, emit) {
 
     if (await isLoggedIn(page, adapter).catch(() => false)) return true;
 
+    let submittedAt = null;
+    let diagOnce = false;
     const deadline = Date.now() + 300000; // 5 分钟
     while (Date.now() < deadline) {
       if (state.canceled) throw new Error('用户取消');
@@ -256,6 +261,7 @@ function createCollector(adapter, cfg, emit) {
           emit('log', { level: 'error', msg: '发送验证码失败：' + e.message });
         }
       } else if (act && act.type === 'submit') {
+        submittedAt = Date.now();
         try {
           const r = await adapter.smsSubmitCode(page, act.code);
           const toast = String(r).includes('｜') ? '（' + String(r).split('｜')[1] + '）' : '';
@@ -278,6 +284,7 @@ function createCollector(adapter, cfg, emit) {
               }
             }
           } else {
+            submittedAt = null;
             emit('log', {
               level: 'warn',
               msg: '提交验证码未完成（' + r + '），请重试；若页面出现滑块验证，请设 BESTSELLER_HEADLESS=false 用有头模式手动过一次',
@@ -292,6 +299,27 @@ function createCollector(adapter, cfg, emit) {
 
       await sleep(2000);
       if (await isLoggedIn(page, adapter).catch(() => false)) return true;
+
+      // 提交后持续未登录，约 20 秒打印一次 Cookie 诊断，便于定位 HttpOnly Cookie 是否写入
+      if (!diagOnce && submittedAt && Date.now() - submittedAt > 18000) {
+        diagOnce = true;
+        try {
+          const cs = await page.context().cookies();
+          const names = cs.map((c) => c.name);
+          const token = cs.find((c) => c.name === 'PDDAccessToken');
+          emit('log', {
+            level: 'info',
+            msg:
+              '调试：登录轮询中 URL=' +
+              page.url().replace(/\?.*$/, '') +
+              ' PDDAccessToken=' +
+              (token && token.value && token.value !== '0' ? '存在' : '未出现') +
+              ' cookies=[' +
+              names.join(',') +
+              ']',
+          });
+        } catch (_) {}
+      }
     }
     throw new Error('短信登录超时（5 分钟）');
   }
