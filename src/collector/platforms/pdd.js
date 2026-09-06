@@ -94,6 +94,34 @@ const TOAST_SRC = `
   }
 `;
 
+/**
+ * 抓取登录失败/风控相关反馈（不限 toast 类）。
+ * 拼多多登录页错误提示通常以红色文字出现在表单附近，class 不固定，
+ * 因此按关键词命中 + 可见叶子文本兜底。
+ */
+const GRAB_FEEDBACK_SRC = `
+  function grabFeedback() {
+    var hits = [];
+    var kw = /错误|失败|过期|失效|频繁|稍后|验证码|手机号|滑动|验证|异常|拒绝|不匹配|不存在|请重新|网络|超时|登录|注册/;
+    var cands = document.querySelectorAll('div, p, span, label, section');
+    for (var i = 0; i < cands.length; i++) {
+      var e = cands[i];
+      if (e.children.length) continue;
+      var t = (e.textContent || '').replace(/[\\u200b\\u200c\\u200d\\ufeff]/g, '').replace(/\\s+/g, ' ').trim();
+      if (!t || t.length > 80) continue;
+      var cls = String(e.className || '');
+      var pCls = e.parentElement ? String(e.parentElement.className || '') : '';
+      var style = window.getComputedStyle(e);
+      var color = style.color || '';
+      var isRed = /red|rgb\(255\s*,\s*0|rgb\(219\s*,\s*59|#ff/i.test(color);
+      var isToast = /toast|tip|notice|message|dialog|popup|hint|error/i.test(cls + ' ' + pCls);
+      if (isToast || isRed || kw.test(t)) hits.push(t);
+    }
+    // 登录按钮附近的文案优先级更高：取最近 3 秒出现的动态文本
+    return hits.filter(function (v, idx, a) { return a.indexOf(v) === idx; }).slice(0, 3).join('｜');
+  }
+`;
+
 /** 短信登录第一步：勾协议 → 填手机号 → 点「发送验证码」。返回状态码供日志输出 */
 const SMS_FILL_PHONE_SRC = `
   (async function (phone) {
@@ -152,6 +180,7 @@ const SMS_SUBMIT_SRC = `
   (async function (code) {
     ${SET_VAL_SRC}
     ${TOAST_SRC}
+    ${GRAB_FEEDBACK_SRC}
     var inps = [];
     var all = document.querySelectorAll('input');
     for (var j = 0; j < all.length; j++) if (vis(all[j])) inps.push(all[j]);
@@ -170,18 +199,26 @@ const SMS_SUBMIT_SRC = `
       if (vis(cbs[b]) && !cbs[b].checked) { cbs[b].click(); break; }
     }
     // 点「登录」（精确文案，避开「发送验证码」「登录即同意」等）
+    var clicked = false;
+    var loginBtn = null;
     var els = document.querySelectorAll('button, div, span, a');
     for (var m = 0; m < els.length; m++) {
       var e = els[m];
       var s = (e.textContent || '').replace(/[\\u200b\\u200c\\u200d\\ufeff]/g, '').trim();
       if (s !== '登录' && s !== '登录/注册') continue;
       if (!vis(e) || e.children.length > 2) continue;
+      loginBtn = e;
       e.click();
-      await new Promise(function (res) { setTimeout(res, 1200); });
-      var toast = grabToast();
-      return 'clicked' + (toast ? '｜页面提示: ' + toast : '');
+      clicked = true;
+      break;
     }
-    return 'no-login-btn';
+    if (!clicked) return 'no-login-btn';
+    // 点击后多等一会，让异步请求/跳转/错误提示有时间渲染
+    await new Promise(function (res) { setTimeout(res, 2500); });
+    var fb = grabFeedback();
+    var toast = grabToast();
+    var extra = fb || toast || '';
+    return 'clicked' + (extra ? '｜页面提示: ' + extra : '');
   })`;
 
 module.exports = {

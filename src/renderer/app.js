@@ -244,6 +244,11 @@ bapi.onLog((l) => {
     els.loginLog.appendChild(d);
     while (els.loginLog.children.length > 6) els.loginLog.removeChild(els.loginLog.firstChild);
   }
+  // 短信登录失败后恢复按钮，允许用户修改验证码重试
+  if (state.phase === 'login' && l.msg && /登录未成功|提交验证码未完成|发送验证码未完成/.test(l.msg) && els.btnSmsLogin) {
+    els.btnSmsLogin.disabled = false;
+    els.loginStatusLine.className = 'status-line err';
+  }
 });
 
 bapi.onProgress((p) => {

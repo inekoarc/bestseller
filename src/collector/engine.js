@@ -261,6 +261,22 @@ function createCollector(adapter, cfg, emit) {
           const toast = String(r).includes('｜') ? '（' + String(r).split('｜')[1] + '）' : '';
           if (/^(clicked|ok)/.test(r)) {
             emit('log', { level: 'info', msg: '✓ 已点击登录，等待结果...' + toast });
+            // 点击后短轮询 8 秒：尽快给出登录成功或失败反馈
+            const quickStart = Date.now();
+            while (Date.now() - quickStart < 8000) {
+              await sleep(500);
+              if (await isLoggedIn(page, adapter).catch(() => false)) return true;
+              // 失败提示通常会在 1-3 秒内出现
+              const fb = await page
+                .evaluate(
+                  '(function(){ var kw=/错误|失败|过期|失效|频繁|稍后|验证码|手机号|滑动|验证|异常|拒绝|不匹配|不存在|请重新|网络|超时|登录|注册/; var hits=[]; var c=document.querySelectorAll("div,p,span,label,section"); for(var i=0;i<c.length;i++){ var e=c[i]; if(e.children.length)continue; var t=(e.textContent||"").replace(/[\\u200b\\u200c\\u200d\\ufeff]/g,"").replace(/\\s+/g," ").trim(); if(!t||t.length>80)continue; var cls=String(e.className||""); var pcls=e.parentElement?String(e.parentElement.className||""):""; var style=window.getComputedStyle(e); var color=style.color||""; var red=/red|rgb\\(255\\s*,\\s*0|rgb\\(219\\s*,\\s*59|#ff/i.test(color); var toast=/toast|tip|notice|message|dialog|popup|hint|error/i.test(cls+" "+pcls); if(toast||red||kw.test(t)) hits.push(t); } return hits.filter(function(v,i,a){return a.indexOf(v)===i;}).slice(0,3).join("｜"); })()'
+                )
+                .catch(() => '');
+              if (fb) {
+                emit('log', { level: 'warn', msg: '登录未成功，页面提示：' + fb });
+                break;
+              }
+            }
           } else {
             emit('log', {
               level: 'warn',

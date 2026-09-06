@@ -1,5 +1,6 @@
 node_modules/
 data/
+pw-data/
 out/
 out2/
 out3/
@@ -18,4 +19,5 @@ npm-debug.log*
 .env
 .vscode/
 .idea/
-data/probe/*-qrcode.pngout6/
+data/probe/*-qrcode.png
+out8/
