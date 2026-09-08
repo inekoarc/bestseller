@@ -179,66 +179,99 @@ function createCollector(adapter, cfg, emit) {
 
   async function doLogin(page) {
     emit('state', { phase: 'login', smsFallback: !!adapter.smsFallback });
-    emit('log', { level: 'info', msg: '等待扫码登录...（请用手机 ' + adapter.name + ' 扫二维码）' });
-    await page.goto(adapter.loginUrl, { waitUntil: 'networkidle', timeout: 60000 }).catch(() => {});
-    await sleep(2000);
+    emit('log', { level: 'info', msg: '等待扫码登录...（请用手机 ' + adapter.name + ' App 扫二维码）' });
 
-    // 风控检测：拼多多对反复自动登录的浏览器会下发 _x_no_login_launch=1，
-    // 此时二维码页签消失、短信提交被静默拦截，表现为「点了没反应」。
-    // 该标记累积在持久化浏览器数据里（全新上下文不会出现），需重置登录配置。
-    if (/_x_no_login_launch=1/.test(page.url())) {
+    // ── 进入登录页并抓取二维码（扫码是主路径，失败自动刷新重试，绝不自动降级短信）──
+    // 短信验证码在自动化浏览器里会被平台服务端静默拦截（多轮实测：提交既不成功也不报错，
+    // 表现就是「点了没反应」），因此只作为用户手动点击的备用选项。
+    let qr = null;
+    for (let att = 0; att < 4 && !qr; att++) {
+      if (state.canceled) throw new Error('用户取消');
+      await page.goto(adapter.loginUrl, { waitUntil: 'networkidle', timeout: 60000 }).catch(() => {});
+      await sleep(2500);
+
+      // 风控检测：拼多多对反复自动登录的浏览器会下发 _x_no_login_launch=1，
+      // 此时二维码页签消失、短信提交被静默拦截。该标记累积在持久化浏览器数据里，需重置登录配置。
+      if (/_x_no_login_launch=1/.test(page.url())) {
+        emit('log', {
+          level: 'warn',
+          msg:
+            '⚠ 拼多多对该浏览器启用了登录风控（_x_no_login_launch），二维码与短信登录都会被静默拦截。' +
+            '请点「重置登录配置」清除被标记的浏览器数据后重试（重置后建议用手机扫码登录），或换个网络环境。',
+        });
+        return 'risk';
+      }
+
+      // 适配器钩子：部分登录页（如拼多多）落地默认是其他登录方式，需先点「扫码登录」页签
+      if (adapter.enterQrLogin) {
+        await adapter.enterQrLogin(page).catch(() => {});
+      }
+
+      qr = await grabQR(page, 15000);
+      if (!qr && att < 3) {
+        emit('log', {
+          level: 'warn',
+          msg: '第 ' + (att + 1) + ' 次未抓到二维码，自动刷新页面重试...',
+        });
+      }
+    }
+
+    if (qr) {
+      pushQR(qr);
+      emit('log', { level: 'info', msg: '✓ 二维码已生成，请用手机 ' + adapter.name + ' App 扫码' });
+    } else {
+      // 连扫 4 次仍无二维码：保持扫码视图并持续自动重试，不降级短信
       emit('log', {
         level: 'warn',
         msg:
-          '⚠ 拼多多对该浏览器启用了登录风控（_x_no_login_launch），二维码与短信登录都会被静默拦截。' +
-          '请点「重置登录配置」清除被标记的浏览器数据后重试（重置后建议用手机扫码登录），或换个网络环境。',
+          '二维码暂时未渲染，正在自动重试... 请稍候；若长时间无二维码，可点「重置登录配置」清除被风控标记的浏览器数据。',
       });
-      return 'risk';
-    }
-
-    // 适配器钩子：部分登录页（如拼多多）落地默认是其他登录方式，需先点「扫码登录」页签
-    if (adapter.enterQrLogin) {
-      await adapter.enterQrLogin(page).catch(() => {});
-    }
-
-    let qr = await grabQR(page, 15000);
-    if (!qr) {
-      if (adapter.smsFallback) {
-        // 拼多多实测：设备短时间反复触发登录后，服务端会收起扫码入口（_x_no_login_launch=1）。
-        // 此时不打扰用户，自动降级到短信验证码登录（备用路径已验证可用）。
-        emit('log', {
-          level: 'warn',
-          msg: '扫码入口未出现或二维码未渲染（可能被风控临时收起），自动切换短信验证码登录',
-        });
-        return 'switch-sms';
-      }
-      emit('log', { level: 'warn', msg: '未自动定位二维码，请在浏览器窗口内手动扫码' });
-    } else {
-      pushQR(qr);
     }
 
     const deadline = Date.now() + 180000;
-    let lastRefresh = Date.now();
+    let lastRefresh = qr ? Date.now() : 0; // 尚未抓到二维码时立即进入周期试抓
+    let nextQrTry = qr ? Date.now() + 60000 : Date.now();
     while (Date.now() < deadline) {
       if (state.canceled) throw new Error('用户取消');
-      // UI 可请求切换到短信验证码登录（扫码被风控/扫不出时的备用路径）
+      // UI 可请求切换到短信验证码登录（扫码扫不出的备用路径，由用户手动触发）
       const sw = state.smsQueue.findIndex((a) => a.type === 'use-sms');
       if (sw >= 0) {
         state.smsQueue.splice(sw, 1);
-        emit('log', { level: 'info', msg: '切换到短信验证码登录' });
+        emit('log', { level: 'info', msg: '切换到短信验证码登录（备用路径）' });
         return 'switch-sms';
       }
       await sleep(2000);
 
+      // 等待期间若 URL 出现风控标记（如误点触发重载），立即给出可操作提示
+      if (/_x_no_login_launch=1/.test(page.url())) {
+        emit('log', {
+          level: 'warn',
+          msg:
+            '⚠ 登录被拼多多风控拦截（_x_no_login_launch）。点「重置登录配置」清除被标记的浏览器数据后用手机扫码登录，或换网络后重试。',
+        });
+        return 'risk';
+      }
+
       if (await checkLoginWithUrlFallback(page, adapter)) return true;
 
-      if (Date.now() - lastRefresh > 60000) {
-        const newQr = await grabQR(page, 5000);
-        if (newQr) pushQR(newQr);
+      // 还没抓到过二维码：每 5s 主动试抓一次，二维码一渲染就推给 UI
+      if (!qr && Date.now() - nextQrTry >= 5000) {
+        nextQrTry = Date.now();
+        const nq = await grabQR(page, 4000);
+        if (nq) {
+          qr = nq;
+          pushQR(nq);
+          lastRefresh = Date.now();
+          emit('log', { level: 'info', msg: '✓ 二维码已生成，请用手机 ' + adapter.name + ' App 扫码' });
+        }
+      } else if (qr && Date.now() - lastRefresh > 60000) {
+        // 已有二维码：每分钟刷新一次（二维码会过期）
+        const nq = await grabQR(page, 5000);
+        if (nq) pushQR(nq);
         lastRefresh = Date.now();
       }
     }
-    throw new Error('等待扫码超时');
+    throw new Error('等待扫码超时（3 分钟）');
   }
 
   /**
@@ -248,7 +281,14 @@ function createCollector(adapter, cfg, emit) {
    */
   async function doSmsLogin(page) {
     emit('state', { phase: 'login', loginMode: 'sms' });
-    emit('log', { level: 'info', msg: '【' + adapter.name + '】H5 仅支持短信验证码登录，请在界面输入手机号' });
+    emit('log', {
+      level: 'warn',
+      msg:
+        '【' +
+        adapter.name +
+        '】已切换短信验证码登录（备用路径）。注意：短信登录在自动化浏览器里易被平台风控静默拦截，' +
+        '若发送验证码或点击登录后长时间无响应，请「取消」后回到扫码登录，成功率更高。',
+    });
     await page.goto(adapter.loginUrl, { waitUntil: 'domcontentloaded', timeout: 60000 }).catch(() => {});
     await sleep(2500);
 

@@ -202,7 +202,9 @@ bapi.onState((p) => {
     if (els.loginLog) els.loginLog.innerHTML = '';
     if (els.btnSmsLogin) els.btnSmsLogin.disabled = false;
     setStatus(sms ? '短信登录' : '等待扫码', 'busy');
-    els.loginStatusLine.textContent = sms ? '请输入手机号获取验证码' : '等待扫码...';
+    els.loginStatusLine.textContent = sms
+      ? '请输入手机号获取验证码（短信是备用路径，易被风控拦截，失败请回到扫码）'
+      : '正在生成二维码，请稍候...';
     els.loginStatusLine.className = 'status-line wait';
   } else if (p.phase === 'logged-in') {
     els.loginStatusLine.textContent = '✓ 登录成功，准备开始采集';
